@@ -1,0 +1,88 @@
+name: CI & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, build & smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke + device tests (headless Chrome, production build)
+        run: |
+          npx vite preview --port 4173 --strictPort > preview.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
+          node scripts/smoke-test.mjs --url=http://localhost:4173/ --channel=chrome
+          node scripts/device-test.mjs --url=http://localhost:4173/ --channel=chrome
+
+  deploy:
+    name: Deploy to Vercel
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::error::Set the VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID repository secrets (see README › Deployment)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Vercel's prebuilt flow: build the same tested commit locally (honouring
+      # vercel.json headers), then upload the output without a remote build.
+      - name: Pull Vercel project settings
+        run: npx --yes vercel@63.1.2 pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build for Vercel
+        run: npx --yes vercel@63.1.2 build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy
+        run: npx --yes vercel@63.1.2 deploy --prebuilt --prod --token="$VERCEL_TOKEN"

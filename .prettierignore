@@ -1,0 +1,5 @@
+dist
+node_modules
+public/assets
+package-lock.json
+src/config/assetManifest.js

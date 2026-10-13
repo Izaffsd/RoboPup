@@ -1,0 +1,40 @@
+{
+  "name": "robopup-shelter",
+  "private": true,
+  "version": "1.0.0",
+  "description": "RoboPup: a third-person robotic dog simulator set in a large indoor dog shelter. Three.js + Rapier.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "assets": "node scripts/build-assets.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "capture:backdrop": "node scripts/capture-backdrop.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.13.0",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.3.0",
+    "playwright-core": "1.64.0",
+    "prettier": "3.9.10",
+    "vite": "8.3.4"
+  }
+}

@@ -1,0 +1,42 @@
+/** Shared stylised colour palette (sRGB hex) for all procedural assets. */
+export const C = Object.freeze({
+  white: 0xf7f5ef,
+  cream: 0xfff1da,
+  ivory: 0xf4ead8,
+  woodLight: 0xe2b27a,
+  woodMid: 0xbe8452,
+  woodDark: 0x7e5233,
+  teal: 0x2bb3a8,
+  tealDark: 0x1d7e80,
+  tealLight: 0x8fdccf,
+  mint: 0xa8e6cf,
+  orange: 0xff8a3d,
+  coral: 0xff6b6b,
+  red: 0xe5484d,
+  yellow: 0xffcf4a,
+  mustard: 0xe2a93b,
+  green: 0x6cc070,
+  leaf: 0x4f9e4f,
+  leafDark: 0x2f7442,
+  leafLight: 0x8ccf5c,
+  blue: 0x4a90e2,
+  sky: 0x8fd3ff,
+  navy: 0x2d3a6b,
+  purple: 0x8f6bd8,
+  lilac: 0xc7b3f0,
+  pink: 0xff9fb8,
+  terracotta: 0xc8643c,
+  soil: 0x4a3426,
+  steel: 0xc9ced6,
+  chrome: 0xe6e9ee,
+  gunmetal: 0x4a4f5a,
+  charcoal: 0x2c2f36,
+  rubber: 0x26272b,
+  cork: 0xc99b63,
+  gold: 0xf1c35b,
+});
+
+/** Tints applied per instance to "*Tint" material slots (near-white base). */
+export const PASTEL_TINTS = Object.freeze([
+  0x8fd3e8, 0xffd27a, 0xa8e6cf, 0xffb3c1, 0xc7b3f0, 0xffb87a, 0x9fc8ff, 0xd8f08a,
+]);

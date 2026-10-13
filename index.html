@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="RoboPup: Shelter Day — a playable 3D robotic dog simulator. Explore a sunny indoor dog shelter, play with toys and bark at friends. Built with Three.js and Rapier."
+    />
+    <meta name="theme-color" content="#1b2340" />
+    <meta property="og:title" content="RoboPup: Shelter Day" />
+    <meta
+      property="og:description"
+      content="Play as a cheerful robot puppy in a big indoor dog shelter."
+    />
+    <title>RoboPup — Shelter Day</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%232bb3a8'/%3E%3Cg fill='%23fff6e5'%3E%3Cellipse cx='32' cy='40' rx='12' ry='10'/%3E%3Cellipse cx='17' cy='27' rx='5' ry='7'/%3E%3Cellipse cx='26' cy='18' rx='5' ry='7'/%3E%3Cellipse cx='38' cy='18' rx='5' ry='7'/%3E%3Cellipse cx='47' cy='27' rx='5' ry='7'/%3E%3C/g%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <img
+        id="backdrop"
+        src="./src/assets/menu-backdrop.jpg"
+        alt=""
+        width="1600"
+        height="900"
+        fetchpriority="high"
+        decoding="async"
+      />
+      <canvas id="scene" tabindex="-1" aria-label="RoboPup 3D view"></canvas>
+      <div id="ui"></div>
+
+      <section id="loading" class="loading" aria-live="polite">
+        <div class="loading-card">
+          <svg class="loading-logo" viewBox="0 0 64 64" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" />
+            <g>
+              <ellipse cx="32" cy="40" rx="12" ry="10" />
+              <ellipse cx="17" cy="27" rx="5" ry="7" />
+              <ellipse cx="26" cy="18" rx="5" ry="7" />
+              <ellipse cx="38" cy="18" rx="5" ry="7" />
+              <ellipse cx="47" cy="27" rx="5" ry="7" />
+            </g>
+          </svg>
+          <h1 class="loading-title">
+            <span class="title-robo">Robo</span><span class="title-pup">Pup</span>
+          </h1>
+          <p class="loading-subtitle">Shelter Day</p>
+          <div
+            class="progress"
+            role="progressbar"
+            aria-label="Loading progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div class="progress-bar"></div>
+          </div>
+          <div class="loading-meta">
+            <span class="loading-label">Fetching the shelter…</span>
+            <span class="loading-percent">0%</span>
+          </div>
+          <p class="loading-tip">Tip: press E to bark.</p>
+        </div>
+      </section>
+
+      <section id="fatal" class="fatal" role="alert" hidden>
+        <div class="fatal-card">
+          <h2>WebGL 2 is not available</h2>
+          <p></p>
+          <button class="btn btn-primary fatal-reload" type="button">Reload</button>
+        </div>
+      </section>
+
+      <noscript>
+        <div class="fatal">
+          <div class="fatal-card">
+            <h2>JavaScript required</h2>
+            <p>RoboPup is a 3D game and needs JavaScript enabled.</p>
+          </div>
+        </div>
+      </noscript>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
