@@ -456,5 +456,6 @@ Stated explicitly, as the brief requires.
     (AudioManager retries on each of those).
 - **Gamepad** was verified with an injected standard-mapping gamepad (Gamepad
   API), not physical hardware.
-- **Deployment** needs the repository owner's Vercel account; see
-  README › Deployment.
+- **Deployment** is Vercel's GitHub integration (every push to `main` goes to
+  https://robo-pup.vercel.app/). It deploys independently of the CI workflow
+  unless Vercel's deployment checks are enabled; see README › Deployment.

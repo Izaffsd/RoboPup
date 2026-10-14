@@ -6,8 +6,7 @@ physics and vanilla ES modules, with no frameworks.
 
 ![RoboPup in the Sunny Nook](src/assets/menu-backdrop.jpg)
 
-- **Live demo:** not deployed yet. Follow [Deployment](#deployment) and Vercel
-  prints the public URL.
+- **Live demo:** https://robo-pup.vercel.app/
 - **Technical write-up:** [TECHNICAL.md](TECHNICAL.md)
 - **Credits & licenses:** [CREDITS.md](CREDITS.md)
 
@@ -334,8 +333,8 @@ Real Safari on macOS/iOS and physical phones were not available for testing.
 
 ## Deployment
 
-The production build is static (`dist/`) and targets **Vercel**. `vercel.json`
-sets:
+Live at **https://robo-pup.vercel.app/**, hosted on **Vercel**. The build is
+static (`dist/`). `vercel.json` sets:
 
 - `npm ci` + `npm run build`, output `dist/`;
 - a correct `application/wasm` MIME type for `.wasm` files;
@@ -343,40 +342,27 @@ sets:
   `?v=<hash>` `/assets/*` files, and revalidation for `index.html`;
 - basic security headers.
 
-`.vercelignore` keeps `dist/` and `node_modules/` out of uploads.
+`.vercelignore` keeps `dist/` and `node_modules/` out of CLI uploads.
 
-### One-off deploy from your machine
+**How updates go live.** The Vercel project is connected to the GitHub
+repository. Every push to `main` is built and deployed to production by
+Vercel itself, and every pull request gets a preview URL. No tokens or
+secrets are stored in GitHub.
+
+**CI.** `.github/workflows/ci.yml` runs on every push and pull request to
+`main`: install → lint → format check → build → smoke and device tests
+(headless Chrome on the production build). GitHub's runners have no GPU, so
+Chrome renders with SwiftShader there (see [Testing](#testing)). Vercel
+deploys independently of CI. To hold production back until CI passes, enable
+Vercel's deployment checks for the "CI" workflow in the Vercel project
+settings.
+
+**Manual deploy** (not normally needed):
 
 ```bash
 npx vercel@63.1.2 login     # once; opens the browser
-npx vercel@63.1.2           # preview deployment (first run links or creates the project)
-npx vercel@63.1.2 --prod    # production deployment
+npx vercel@63.1.2 --prod    # production deployment from this machine
 ```
-
-Vercel prints the public URL. Framework detection is not needed:
-`vercel.json` defines the install, build and output settings.
-
-### Continuous deployment (GitHub Actions)
-
-`.github/workflows/ci-deploy.yml` runs on every push and pull request to
-`main`: install → lint → format check → build → smoke and device tests
-(headless Chrome on the production build). On pushes to `main`, once those
-pass, it deploys the same commit to Vercel with the prebuilt flow
-(`vercel pull` → `vercel build --prod` → `vercel deploy --prebuilt --prod`),
-so `vercel.json` headers apply and no remote build runs.
-
-To enable it:
-
-1. Push the repository to GitHub (default branch `main`).
-2. Link the project once from your machine: `npx vercel@63.1.2 link`. This
-   writes `.vercel/project.json` (git-ignored) containing `orgId` and
-   `projectId`.
-3. Create a token at vercel.com → Account Settings → Tokens.
-4. In GitHub → Settings → Secrets and variables → Actions, add:
-   - `VERCEL_TOKEN`
-   - `VERCEL_ORG_ID` (the `orgId` value)
-   - `VERCEL_PROJECT_ID` (the `projectId` value)
-5. Push to `main`.
 
 ## Project conventions
 
