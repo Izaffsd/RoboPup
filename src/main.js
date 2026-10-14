@@ -178,7 +178,7 @@ async function start() {
     loading.showError('Could not download the game files. Check your connection and reload.');
     return;
   }
-  loading.hide();
+  loading.hide(); 
   menu.showStart();
   menuFrame = requestAnimationFrame(pollMenu);
   const off = bus.on(Events.UI_REQUEST_PLAY, () => {
