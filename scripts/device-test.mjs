@@ -22,7 +22,13 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { chromiumArgs, gameClock, parseArgs, SOFTWARE_RENDERER } from './testkit.mjs';
+import {
+  chromiumArgs,
+  gameClock,
+  isBrowserNoise,
+  parseArgs,
+  SOFTWARE_RENDERER,
+} from './testkit.mjs';
 
 const args = parseArgs();
 const base = new URL(args.url || 'http://localhost:4173/');
@@ -41,7 +47,7 @@ const browser = await chromium.launch({
 function watch(page, tag) {
   page.on('console', (msg) => {
     const type = msg.type();
-    if (type === 'error' || type === 'warning')
+    if ((type === 'error' || type === 'warning') && !isBrowserNoise(msg.text()))
       problems.push(`[${tag} console.${type}] ${msg.text()}`);
   });
   page.on('pageerror', (err) => problems.push(`[${tag} pageerror] ${err.message}`));

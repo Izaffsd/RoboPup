@@ -40,6 +40,23 @@ export function chromiumArgs(forceSoftware) {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Console messages the browser itself emits that say nothing about the game.
+ * Kept deliberately narrow: everything else still fails the tests.
+ *
+ * - Chrome on a GPU-less Linux machine composites in software and reads each
+ *   WebGL frame back to the CPU; its GL driver reports that as a performance
+ *   note ("GPU stall due to ReadPixels"). Any WebGL page triggers it there.
+ */
+const BROWSER_NOISE = [
+  /^\[\.WebGL-[0-9a-fx]+\]GL Driver Message \([^)]*Performance[^)]*\): GPU stall due to ReadPixels/,
+];
+
+/** @param {string} text Console message text. */
+export function isBrowserNoise(text) {
+  return BROWSER_NOISE.some((re) => re.test(text));
+}
+
+/**
  * Waiting helpers bound to one page.
  * @param {import('playwright-core').Page} page
  * @param {number} timeout Upper bound for any single wait (ms).

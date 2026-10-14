@@ -31,7 +31,14 @@
 import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, firefox, webkit } from 'playwright-core';
-import { chromiumArgs, gameClock, parseArgs, sleep, SOFTWARE_RENDERER } from './testkit.mjs';
+import {
+  chromiumArgs,
+  gameClock,
+  isBrowserNoise,
+  parseArgs,
+  sleep,
+  SOFTWARE_RENDERER,
+} from './testkit.mjs';
 
 const args = parseArgs();
 const url = new URL(args.url || 'http://localhost:4173/');
@@ -61,7 +68,8 @@ log(`browser: ${engine}${engine === 'chromium' ? ` (${channel})` : ''} ${browser
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('console', (msg) => {
   const type = msg.type();
-  if (type === 'error' || type === 'warning') problems.push(`[console.${type}] ${msg.text()}`);
+  if ((type === 'error' || type === 'warning') && !isBrowserNoise(msg.text()))
+    problems.push(`[console.${type}] ${msg.text()}`);
 });
 page.on('pageerror', (err) => problems.push(`[pageerror] ${err.message}`));
 page.on('requestfailed', (req) =>
