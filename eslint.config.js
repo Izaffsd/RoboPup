@@ -37,8 +37,13 @@ export default [
     },
   },
   {
-    // page.evaluate() callbacks in the smoke test run inside the browser.
-    files: ['scripts/smoke-test.mjs', 'scripts/capture-backdrop.mjs', 'scripts/device-test.mjs'],
+    // page.evaluate() callbacks in the browser tests run inside the page.
+    files: [
+      'scripts/smoke-test.mjs',
+      'scripts/capture-backdrop.mjs',
+      'scripts/device-test.mjs',
+      'scripts/testkit.mjs',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,

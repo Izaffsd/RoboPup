@@ -626,6 +626,11 @@ export class Engine {
             grade: Boolean(engine.postfx.grade && engine.postfx.grade.enabled),
             stats: { ...engine.save.progress.stats },
             frame: engine.time.frame,
+            /** Fixed physics steps and game time so far (frame-rate independent test clocks). */
+            steps: engine.physics.stepCount,
+            gameTime: engine.time.elapsed,
+            emoteTime: engine.emotes.t,
+            gpu: engine.quality.gpu,
             now: performance.now(),
           };
         },

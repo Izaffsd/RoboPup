@@ -2,7 +2,7 @@
  * Automated browser smoke test (quality gate).
  *
  *   npm run test:smoke -- [--url=http://localhost:4173/] [--channel=chrome|msedge]
- *                         [--browser=chromium|firefox|webkit] [--headed]
+ *                         [--browser=chromium|firefox|webkit] [--headed] [--software]
  *                         [--shots=<dir>] [--soak=<seconds>] [--tour]
  *
  * Opens the game with `?test`, then:
@@ -18,19 +18,22 @@
  *  - cycles every graphics preset and checks GPU geometry/texture counts
  *    return to their baseline (no leaks on preset change);
  *  - optional soak test: plays for N seconds and checks memory is stable.
+ *
+ * Timing uses the game's own clocks (see testkit.mjs), so the test also runs
+ * on GPU-less CI machines where Chrome falls back to SwiftShader. There the
+ * viewport is reduced to 640×360 and the depth-of-field pass is switched off
+ * before the photo-mode UI checks, because a software rasteriser takes tens
+ * of seconds per frame for it. `--software` forces SwiftShader locally.
+ *
  * Chromium runs on an installed Chrome/Edge (no download). Firefox (Gecko) and
  * WebKit need `npx playwright-core install firefox webkit` first.
  */
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, firefox, webkit } from 'playwright-core';
+import { chromiumArgs, gameClock, parseArgs, sleep, SOFTWARE_RENDERER } from './testkit.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const [k, v] = a.replace(/^--/, '').split('=');
-    return [k, v ?? true];
-  }),
-);
+const args = parseArgs();
 const url = new URL(args.url || 'http://localhost:4173/');
 url.searchParams.set('test', '1');
 const channel = args.channel || (process.platform === 'win32' ? 'msedge' : 'chrome');
@@ -39,7 +42,6 @@ const soak = Number(args.soak || 0);
 
 const problems = [];
 const log = (m) => process.stdout.write(`${m}\n`);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const engine = String(args.browser || 'chromium');
 const browser =
@@ -51,11 +53,7 @@ const browser =
           channel,
           headless: !args.headed,
           args: [
-            '--ignore-gpu-blocklist',
-            // Allows WebGL via SwiftShader on GPU-less CI runners.
-            '--enable-unsafe-swiftshader',
-            '--enable-gpu',
-            '--use-angle=default',
+            ...chromiumArgs(Boolean(args.software)),
             '--autoplay-policy=user-gesture-required',
           ],
         });
@@ -75,7 +73,6 @@ async function shot(name) {
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, `${name}.png`) });
 }
-const snap = () => page.evaluate(() => window.__ROBOPUP_TEST__.snapshot());
 
 // Save migration: a pre-SaveManager settings key is upgraded into the
 // versioned save document (and removed), keeping the player's values.
@@ -119,76 +116,88 @@ await shot('01-menu');
 // Phase 2: Play boots the engine behind the loading screen and starts the game.
 const t1 = Date.now();
 await play.click();
-await page.waitForFunction(() => window.__ROBOPUP_TEST__ !== undefined, null, { timeout: 120000 });
+await page.waitForFunction(() => window.__ROBOPUP_TEST__ !== undefined, null, { timeout: 180000 });
 log(`engine booted in ${((Date.now() - t1) / 1000).toFixed(1)}s`);
-await sleep(1200);
+
+// A software rasteriser (GPU-less CI) gets a smaller viewport and generous timeouts.
+const gpuName = await page.evaluate(() => window.__ROBOPUP_TEST__.snapshot().gpu);
+const software = SOFTWARE_RENDERER.test(gpuName);
+const W = software ? 640 : 1280;
+const H = software ? 360 : 720;
+if (software) {
+  await page.setViewportSize({ width: W, height: H });
+  log(`software renderer (${gpuName}): ${W}×${H} viewport, frame-clock timing`);
+}
+const TIMEOUT = software ? 300000 : 30000;
+const { snap, until, afterSteps, afterFrames } = gameClock(page, TIMEOUT);
+
+await afterFrames(3);
 await shot('02-play-start');
 const start = await snap();
 if (start.state !== 'playing')
   problems.push(`[ui] expected playing after boot, got ${start.state}`);
 log(`play: preset=${start.preset} calls=${start.calls} tris=${start.triangles}`);
 
-// Move forward, sprint, jump, bark.
+// Move forward, sprint, jump, bark (durations in physics steps: 60 = 1 s of play).
 await page.keyboard.down('KeyW');
-await sleep(1400);
+await afterSteps(84);
 await page.keyboard.down('ShiftLeft');
-await sleep(1200);
+await afterSteps(72);
 await page.keyboard.press('Space');
-await sleep(250);
+await afterSteps(15);
 await shot('03-jump');
-await sleep(700);
+await afterSteps(42);
 await page.keyboard.up('ShiftLeft');
 await page.keyboard.up('KeyW');
 await page.keyboard.press('KeyE');
-await sleep(300);
+await afterSteps(18);
 await shot('04-bark');
-await sleep(900);
+await afterSteps(54);
 
 // Orbit (drag) and zoom.
-const cx = 640;
-const cy = 360;
+const cx = W / 2;
+const cy = H / 2;
 await page.mouse.move(cx, cy);
 await page.mouse.down({ button: 'left' });
-for (let i = 0; i < 20; i++) await page.mouse.move(cx + i * 12, cy + i * 2);
+for (let i = 0; i < 20; i++) await page.mouse.move(cx + i * 6, cy + i);
 await page.mouse.up({ button: 'left' });
+// Releasing pointer lock is asynchronous; an Esc pressed before it completes
+// is consumed by the browser to leave the lock.
+await page.waitForFunction(() => !document.pointerLockElement, null, { timeout: TIMEOUT });
 await page.mouse.wheel(0, -400);
-await sleep(800);
+await afterFrames(3);
 await shot('05-orbit');
-const moved = await snap();
+const moved = await until((s) => s.grounded);
 const dist = Math.hypot(moved.x - start.x, moved.z - start.z);
 log(
   `moved ${dist.toFixed(2)} m, grounded=${moved.grounded}, y=${moved.y.toFixed(3)}, calls=${moved.calls}`,
 );
-// Software-rendered CI runs simulate fewer steps per real second, so keep this lenient.
 if (dist < 1) problems.push(`[gameplay] dog only moved ${dist.toFixed(2)} m`);
 if (!moved.grounded) problems.push('[gameplay] dog not grounded after landing');
 if (moved.y < -0.05) problems.push(`[gameplay] dog below floor (y=${moved.y})`);
 
 // Pause / resume via Esc.
 await page.keyboard.press('Escape');
-await sleep(400);
-const paused = await snap();
+const paused = await until((s) => s.state === 'paused');
 if (paused.state !== 'paused') problems.push(`[ui] Esc did not pause (state=${paused.state})`);
 await shot('06-pause');
+// The game ignores a second pause toggle within 250 ms (real time) of the
+// first, so a browser's duplicate Esc events cannot toggle twice.
+await sleep(350);
 await page.keyboard.press('Escape');
-await sleep(400);
-if ((await snap()).state !== 'playing') problems.push('[ui] Esc did not resume');
+if ((await until((s) => s.state === 'playing')).state !== 'playing')
+  problems.push('[ui] Esc did not resume');
 
 // ---------------------------------------------------------------- Phase A
-const wait = async (fn, ms = 4000) => {
-  const end = Date.now() + ms;
-  for (;;) {
-    const s = await snap();
-    if (fn(s) || Date.now() > end) return s;
-    await sleep(100);
-  }
+const resetSpot = async () => {
+  await page.evaluate(() => window.__ROBOPUP_TEST__.teleport(-2, 7.5, Math.PI));
+  await afterSteps(24);
 };
-const resetSpot = () =>
-  page.evaluate(() => window.__ROBOPUP_TEST__.teleport(-2, 7.5, Math.PI)).then(() => sleep(400));
 
-// F3 performance overlay.
+// F3 performance overlay (refreshes twice a second, or every frame when slower).
 await page.keyboard.press('F3');
 await sleep(1300);
+await afterFrames(2);
 const overlayText = await page.locator('.debug-overlay').innerText();
 for (const label of ['FPS', 'CPU logic', 'GPU', 'Draw calls', 'Triangles', 'Physics']) {
   if (!overlayText.includes(label)) problems.push(`[overlay] missing "${label}"`);
@@ -202,95 +211,100 @@ if (await page.locator('.debug-overlay').isVisible()) problems.push('[overlay] F
 // Emotes: number key, movement cancels.
 await resetSpot();
 await page.keyboard.press('Digit1');
-let e = await wait((s) => s.emote === 'sit' && s.emoteWeight > 0.6);
+let e = await until((s) => s.emote === 'sit' && s.emoteWeight > 0.6);
 if (e.emote !== 'sit') problems.push(`[emote] 1 did not start Sit (${e.emote})`);
 if (e.face !== 'happy') problems.push(`[emote] Sit face is ${e.face}, expected happy`);
 await page.keyboard.down('KeyW');
-await sleep(300);
+e = await until((s) => s.emote === '');
 await page.keyboard.up('KeyW');
-e = await wait((s) => s.emote === '');
 if (e.emote !== '') problems.push('[emote] movement did not cancel the emote');
 
 // Emote wheel: hold Q, move the mouse, release.
 await resetSpot();
-await page.mouse.move(640, 360);
+await page.mouse.move(cx, cy);
 await page.keyboard.down('KeyQ');
-await sleep(150);
-for (let i = 1; i <= 8; i++) await page.mouse.move(640, 360 - i * 8);
-await sleep(150);
-const wheelOpen = (await snap()).wheelOpen;
-const picked = await page.locator('.wheel-slot.is-selected').getAttribute('data-emote');
+const wheelOpen = (await until((s) => s.wheelOpen)).wheelOpen;
+for (let i = 1; i <= 8; i++) await page.mouse.move(cx, cy - i * 8);
+await afterFrames(2);
+const picked = await page.locator('.wheel-slot.is-selected').getAttribute('data-emote', {
+  timeout: TIMEOUT,
+});
 await shot('10-emote-wheel');
 await page.keyboard.up('KeyQ');
-e = await wait((s) => s.emote !== '');
+e = await until((s) => s.emote !== '');
 log(`emote wheel: open=${wheelOpen} picked=${picked} → ${e.emote}`);
 if (!wheelOpen || picked !== 'sit' || e.emote !== 'sit')
   problems.push(
     `[emote] wheel pick failed (open=${wheelOpen}, picked=${picked}, emote=${e.emote})`,
   );
 await page.keyboard.press('Space');
-await wait((s) => s.emote === '' && s.grounded);
+await until((s) => s.emote === '' && s.grounded);
 
-// Zoomies runs in a circle; Roll Over rolls the body; Sleep shows the sleepy face.
+// Zoomies runs in a circle; Roll Over rolls onto its back; Sleep shows the sleepy face.
 await resetSpot();
 const z0 = await snap();
 await page.keyboard.press('Digit4');
-await sleep(1500);
-const z1 = await snap();
+// Distance after one simulated second (60 physics steps): below ~12 FPS the
+// simulation runs in slow motion, so the frame-based emote clock runs ahead.
+const zs = await until((s) => s.emote === 'zoomies');
+const z1 = await until((s) => s.emote !== 'zoomies' || s.steps - zs.steps >= 60);
 const zoomDist = Math.hypot(z1.x - z0.x, z1.z - z0.z);
 if (z1.emote !== 'zoomies' || zoomDist < 0.5)
   problems.push(`[emote] zoomies did not run (${z1.emote}, ${zoomDist.toFixed(2)} m)`);
-await wait((s) => s.emote === '', 6000);
+await until((s) => s.emote === '');
 await resetSpot();
 await page.keyboard.press('Digit5');
+await until((s) => s.emote === 'rollOver');
 let maxRoll = 0;
-for (let i = 0; i < 25; i++) {
-  maxRoll = Math.max(maxRoll, Math.abs((await snap()).bodyRoll));
-  await sleep(80);
-}
+await until((s) => {
+  maxRoll = Math.max(maxRoll, Math.abs(s.bodyRoll));
+  return s.emote === '';
+});
 if (maxRoll < 2.5)
   problems.push(`[emote] roll over never rolled onto its back (max ${maxRoll.toFixed(2)})`);
-await wait((s) => s.emote === '', 4000);
 await page.keyboard.press('Digit7');
-e = await wait((s) => s.emote === 'sleep' && s.face === 'sleepy');
+e = await until((s) => s.emote === 'sleep' && s.face === 'sleepy');
 await shot('11-sleep');
 if (e.face !== 'sleepy') problems.push(`[emote] Sleep face is ${e.face}`);
 log(
   `emotes: zoomies ran ${zoomDist.toFixed(2)} m, roll-over max roll ${maxRoll.toFixed(2)} rad, sleep face ${e.face}`,
 );
-await page.keyboard.press('KeyA');
-await wait((s) => s.emote === '');
+await page.keyboard.down('KeyA');
+await until((s) => s.emote === '');
+await page.keyboard.up('KeyA');
 
 // Photo mode: freeze, fly, FOV, filter, capture, exit.
 await resetSpot();
 await page.keyboard.press('KeyP');
-let ph = await wait((s) => s.state === 'photo');
+let ph = await until((s) => s.state === 'photo');
 if (ph.state !== 'photo') problems.push(`[photo] P did not enter photo mode (${ph.state})`);
+if (software) {
+  // The bokeh gather costs tens of seconds per frame on a CPU rasteriser.
+  await page.evaluate(() => window.__ROBOPUP_TEST__.photoParam('dof', false));
+}
 const fov0 = ph.fov;
 await page.keyboard.down('KeyS');
 await page.keyboard.down('KeyE');
-await sleep(600);
+const flown = (s) => Math.hypot(s.camX - ph.camX, s.camY - ph.camY, s.camZ - ph.camZ);
+let ph1 = await until((s) => flown(s) >= 0.5);
 await page.keyboard.up('KeyS');
 await page.keyboard.up('KeyE');
-await page.mouse.move(400, 300);
+const camMoved = flown(ph1);
+await page.mouse.move(cx - 100, cy);
 await page.mouse.wheel(0, 400);
-await sleep(300);
-const ph1 = await snap();
-const camMoved = Math.hypot(ph1.camX - ph.camX, ph1.camY - ph.camY, ph1.camZ - ph.camZ);
+ph1 = await until((s) => s.fov > fov0);
 if (camMoved < 0.3) problems.push(`[photo] free camera did not move (${camMoved.toFixed(2)} m)`);
 if (Math.hypot(ph1.x - ph.x, ph1.z - ph.z) > 1e-3) problems.push('[photo] simulation not frozen');
 if (ph1.fov <= fov0) problems.push('[photo] wheel did not change the FOV');
-await page.locator('.chip[data-filter="vintage"]').click();
-await sleep(200);
-if (!(await snap()).grade) problems.push('[photo] filter pass not enabled');
+await page.locator('.chip[data-filter="vintage"]').click({ timeout: TIMEOUT });
+if (!(await until((s) => s.grade)).grade) problems.push('[photo] filter pass not enabled');
 await shot('12-photo');
-const download = page.waitForEvent('download', { timeout: 15000 });
+const download = page.waitForEvent('download', { timeout: TIMEOUT });
 await page.keyboard.press('KeyC');
 let pngBytes = 0;
 try {
   const dl = await download;
   const file = await dl.path();
-  const { stat } = await import('node:fs/promises');
   pngBytes = file ? (await stat(file)).size : 0;
   log(
     `photo: camera moved ${camMoved.toFixed(2)} m, fov ${fov0} → ${ph1.fov}, saved ${dl.suggestedFilename()} (${(pngBytes / 1024).toFixed(0)} KB)`,
@@ -298,18 +312,21 @@ try {
 } catch (err) {
   problems.push(`[photo] capture produced no download (${err.message})`);
 }
-if (pngBytes > 0 && pngBytes < 20000)
+// Software captures are 640×360, so the size floor scales with the image.
+const minPng = software ? 5000 : 20000;
+if (pngBytes > 0 && pngBytes < minPng)
   problems.push(`[photo] PNG suspiciously small (${pngBytes} B)`);
-await page.locator('.chip[data-filter="none"]').click();
+await page.locator('.chip[data-filter="none"]').click({ timeout: TIMEOUT });
 await page.keyboard.press('Escape');
-ph = await wait((s) => s.state === 'playing');
+ph = await until((s) => s.state === 'playing');
 if (ph.state !== 'playing') problems.push(`[photo] Esc did not exit (${ph.state})`);
 if (Math.abs(ph.fov - fov0) > 0.01 || ph.exposure !== 1 || ph.grade || ph.dof)
   problems.push(`[photo] exit did not restore the camera (${ph.fov}, ${ph.exposure})`);
 
 // Stats persist across a reload; Settings › Reset progress erases them.
+await sleep(350);
 await page.keyboard.press('Escape');
-await sleep(300);
+await until((s) => s.state === 'paused');
 await page.reload({ waitUntil: 'domcontentloaded' });
 const stored = await page.evaluate(
   () => JSON.parse(localStorage.getItem('robopup.save')).progress.stats,
@@ -336,19 +353,20 @@ if (!settingsKept || typeof settingsKept.fov !== 'number')
 log('reset progress: ok');
 await page.getByRole('button', { name: 'Back' }).click();
 await page.getByRole('button', { name: 'Play' }).click();
-await page.waitForFunction(() => window.__ROBOPUP_TEST__ !== undefined, null, { timeout: 120000 });
-await sleep(1200);
+await page.waitForFunction(() => window.__ROBOPUP_TEST__ !== undefined, null, { timeout: 180000 });
+await afterFrames(3);
 
 // Frame-rate sample per preset (uncapped by test harness; vsync-limited).
 async function measureFps(ms = 2500) {
   const a = await snap();
   await sleep(ms);
-  const b = await snap();
+  const b = await until((s) => s.frame > a.frame + 1);
   return ((b.frame - a.frame) * 1000) / (b.now - a.now);
 }
 for (const q of ['low', 'medium', 'high', 'ultra']) {
   await page.evaluate((v) => window.__ROBOPUP_TEST__.setQuality(v), q);
   await sleep(1500);
+  await afterFrames(2);
   const fps = await measureFps();
   const s = await snap();
   log(
@@ -361,7 +379,7 @@ const base = await snap();
 for (const q of ['low', 'medium', 'high', 'ultra', 'medium', 'low', 'ultra']) {
   await page.evaluate((v) => window.__ROBOPUP_TEST__.setQuality(v), q);
   await sleep(900);
-  const s = await snap();
+  const s = await afterFrames(2);
   log(
     `  preset ${q.padEnd(6)} calls=${String(s.calls).padStart(3)} geo=${s.geometries} tex=${s.textures}`,
   );
@@ -369,7 +387,7 @@ for (const q of ['low', 'medium', 'high', 'ultra', 'medium', 'low', 'ultra']) {
 }
 await page.evaluate((v) => window.__ROBOPUP_TEST__.setQuality(v), base.preset);
 await sleep(900);
-const after = await snap();
+const after = await afterFrames(2);
 log(
   `memory baseline geo=${base.geometries} tex=${base.textures} → after geo=${after.geometries} tex=${after.textures}`,
 );
@@ -435,9 +453,9 @@ if (args.tour) {
   ];
   for (const [name, x, z, yaw, camYaw, pitch, dist] of stops) {
     await page.evaluate(
-      ([px, pz, py, cy, cp, cd]) => {
+      ([px, pz, py, cyaw, cp, cd]) => {
         window.__ROBOPUP_TEST__.teleport(px, pz, py);
-        window.__ROBOPUP_TEST__.orbit(cy, cp, cd);
+        window.__ROBOPUP_TEST__.orbit(cyaw, cp, cd);
       },
       [x, z, yaw, camYaw, pitch, dist],
     );

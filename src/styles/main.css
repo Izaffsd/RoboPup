@@ -126,6 +126,8 @@ body {
 .loading.is-hidden {
   opacity: 0;
   visibility: hidden;
+  /* Never swallow input while fading out. */
+  pointer-events: none;
 }
 
 .loading-card {

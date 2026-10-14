@@ -18,7 +18,9 @@ jobs:
   build:
     name: Lint, build & smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # GitHub-hosted runners have no GPU: Chrome renders with SwiftShader at a
+    # few seconds per frame, and the tests wait on the game's own clock.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

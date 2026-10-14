@@ -240,6 +240,10 @@ export class DogAnimator {
    */
   update(dt, s) {
     if (!this._initialised) this.resetPose(s.rootPos, s.yaw);
+    // Emote timing uses the real frame time (like EmoteSystem's timer) so a
+    // one-shot emote plays in full even at very low frame rates; everything
+    // else integrates with a clamped step for stability.
+    const frameDt = dt;
     dt = Math.min(dt, 1 / 20);
     const A = ANIMATION;
     const dog = this.dog;
@@ -248,12 +252,12 @@ export class DogAnimator {
     // ------------------------------------------------------------ emote layer
     const P = this.pose;
     if (this.emote) {
-      if (this._emoteActive) this.emoteT += dt;
+      if (this._emoteActive) this.emoteT += frameDt;
       this.emoteW = damp(
         this.emoteW,
         this._emoteActive ? 1 : 0,
         this._emoteActive ? EMOTES.blendIn : EMOTES.blendOut,
-        dt,
+        frameDt,
       );
       resetPose(P);
       this.emote.pose(this.emoteT, P, A.rideHeight);

@@ -274,10 +274,18 @@ npm run build && npm run preview &
 npm run test:smoke -- --url=http://localhost:4173/                  # Edge/Chrome
 npm run test:smoke -- --url=http://localhost:4173/ --soak=600       # 10-minute soak
 node scripts/device-test.mjs --url=http://localhost:4173/           # touch + gamepad
+npm run test:smoke -- --url=http://localhost:4173/ --software       # GPU-less CI conditions (SwiftShader)
 npx playwright-core install firefox webkit                          # once
 npm run test:smoke -- --url=http://localhost:4173/ --browser=firefox
 npm run test:smoke -- --url=http://localhost:4173/ --browser=webkit
 ```
+
+Both tests wait on the game's own clocks (rendered frames, 60 Hz physics
+steps, emote time) rather than fixed sleeps. They therefore pass on a GPU at
+60 FPS and on GPU-less CI runners, where Chrome falls back to SwiftShader and
+renders a frame every few seconds. On a software renderer the tests shrink
+the viewport to 640×360 and switch off the photo-mode depth-of-field pass.
+`--software` forces SwiftShader locally to reproduce CI.
 
 The smoke test fails on any console error or warning, page error or failed
 request. It checks:

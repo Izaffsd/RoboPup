@@ -37,10 +37,15 @@ export function readGPU(gl) {
  * @param {string} [gpu] GPU name (read from `gl` when omitted).
  * @returns {'low'|'medium'|'high'}
  */
+/** @param {string} gpu GPU / renderer name. */
+export function isSoftwareRenderer(gpu) {
+  return /swiftshader|llvmpipe|software|basic render|microsoft basic/i.test(gpu);
+}
+
 export function detectPresetKey(gl, gpu = readGPU(gl)) {
   const g = gpu.toLowerCase();
   const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
-  if (/swiftshader|llvmpipe|software|basic render|microsoft basic/.test(g)) return 'low';
+  if (isSoftwareRenderer(g)) return 'low';
   if (isMobileDevice()) return 'low';
   if (maxTex < 8192) return 'low';
   if (/nvidia|geforce|rtx|gtx|quadro|radeon rx|radeon pro|arc\(tm\) a|arc a\d/.test(g))
@@ -56,6 +61,9 @@ export function detectPresetKey(gl, gpu = readGPU(gl)) {
  * rasteriser / mobile → Low, integrated → Medium, discrete → High). The
  * measured frame rate is then monitored; if it stays below target the preset
  * steps down, and at Low the render scale shrinks (dynamic resolution).
+ * A software rasteriser starts at the smallest render scale. Single frames
+ * over 0.5 s (tab switches, debugger pauses) are ignored, but several in a
+ * row mean the device is simply that slow and step down at once.
  * Manual selections disable the monitor.
  */
 export class QualityManager {
@@ -72,6 +80,8 @@ export class QualityManager {
     this.mobile = isMobileDevice();
     this.gpu = readGPU(renderer.three.getContext());
     this.detectedKey = detectPresetKey(renderer.three.getContext(), this.gpu);
+    this.software = isSoftwareRenderer(this.gpu);
+    this._slowFrames = 0;
     /** Currently applied preset key. */
     this.current = '';
     this.auto = true;
@@ -94,7 +104,7 @@ export class QualityManager {
    */
   setMode(mode) {
     this.auto = mode === 'auto';
-    this.renderer.renderScale = 1;
+    this.renderer.renderScale = this.auto && this.software ? QUALITY_AUTO.minRenderScale : 1;
     this.apply(this.auto ? this.detectedKey : mode, true);
   }
 
@@ -122,11 +132,17 @@ export class QualityManager {
    * @param {number} rawDelta Unclamped frame time in seconds.
    */
   update(rawDelta) {
-    if (!this.auto || rawDelta <= 0 || rawDelta > 0.5) return;
+    if (!this.auto || rawDelta <= 0) return;
     if (this._warm > 0) {
       this._warm -= rawDelta;
       return;
     }
+    if (rawDelta > 0.5) {
+      this._slowFrames++;
+      if (this._slowFrames >= 3) this._stepDown();
+      return;
+    }
+    this._slowFrames = 0;
     this._frames++;
     this._time += rawDelta;
     if (this._time < QUALITY_AUTO.window) return;
@@ -134,7 +150,11 @@ export class QualityManager {
     this._frames = 0;
     this._time = 0;
     const target = this.mobile ? QUALITY_AUTO.targetFpsMobile : QUALITY_AUTO.targetFpsDesktop;
-    if (fps >= target) return;
+    if (fps < target) this._stepDown();
+  }
+
+  /** One step cheaper: the previous preset, or at Low a smaller render scale. */
+  _stepDown() {
     const idx = QUALITY_ORDER.indexOf(this.current);
     if (idx > 0) {
       this.apply(QUALITY_ORDER[idx - 1]);
@@ -148,6 +168,7 @@ export class QualityManager {
   }
 
   _resetMonitor() {
+    this._slowFrames = 0;
     this._frames = 0;
     this._time = 0;
     this._warm = QUALITY_AUTO.warmup;
