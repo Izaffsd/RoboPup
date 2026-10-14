@@ -237,8 +237,12 @@ if (!wheelOpen || picked !== 'sit' || e.emote !== 'sit')
   problems.push(
     `[emote] wheel pick failed (open=${wheelOpen}, picked=${picked}, emote=${e.emote})`,
   );
+// Jumping cancels the emote; let the jump play out (the jump starts on the
+// next physics step, so "grounded" alone could still be the take-off frame).
 await page.keyboard.press('Space');
-await until((s) => s.emote === '' && s.grounded);
+await until((s) => s.emote === '');
+await afterSteps(70);
+await until((s) => s.grounded);
 
 // Zoomies runs in a circle; Roll Over rolls onto its back; Sleep shows the sleepy face.
 await resetSpot();
@@ -363,7 +367,8 @@ async function measureFps(ms = 2500) {
   const b = await until((s) => s.frame > a.frame + 1);
   return ((b.frame - a.frame) * 1000) / (b.now - a.now);
 }
-for (const q of ['low', 'medium', 'high', 'ultra']) {
+// (Skipped on a software rasteriser: its frame rate says nothing about players.)
+for (const q of software ? [] : ['low', 'medium', 'high', 'ultra']) {
   await page.evaluate((v) => window.__ROBOPUP_TEST__.setQuality(v), q);
   await sleep(1500);
   await afterFrames(2);
@@ -374,9 +379,13 @@ for (const q of ['low', 'medium', 'high', 'ultra']) {
   );
 }
 
-// Preset cycling: memory must return to baseline.
+// Preset cycling: memory must return to baseline. (One pass through every
+// preset on a software rasteriser, where Ultra frames take many seconds.)
 const base = await snap();
-for (const q of ['low', 'medium', 'high', 'ultra', 'medium', 'low', 'ultra']) {
+const cycle = software
+  ? ['low', 'medium', 'high', 'ultra']
+  : ['low', 'medium', 'high', 'ultra', 'medium', 'low', 'ultra'];
+for (const q of cycle) {
   await page.evaluate((v) => window.__ROBOPUP_TEST__.setQuality(v), q);
   await sleep(900);
   const s = await afterFrames(2);

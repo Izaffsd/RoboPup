@@ -229,15 +229,36 @@ async function bootGame(page, tap) {
       },
       [i, value],
     );
-  /**
-   * Press and release. The button is held for `frames` rendered frames; menu
-   * navigation uses 1 so a slow frame cannot outlast the auto-repeat delay.
-   */
-  const press = async (i, frames = 2) => {
+  /** Press and release, each held for at least one polled frame. */
+  const press = async (i) => {
     await setButton(i, 1);
-    await afterFrames(frames);
+    await afterFrames(2);
     await setButton(i, 0);
     await afterFrames(2);
+  };
+  /**
+   * A press the game sees in exactly one frame (for menu navigation, which
+   * auto-repeats while held). The release happens inside the page in a
+   * requestAnimationFrame callback queued after the game's own frame
+   * callback, so the next game frame reads it as released however slowly
+   * frames render and however late the test's next command arrives.
+   */
+  const tap = async (i) => {
+    await page.evaluate(
+      (index) =>
+        new Promise((resolve) => {
+          const b = window.__testPad.buttons[index];
+          b.pressed = true;
+          b.value = 1;
+          requestAnimationFrame(() => {
+            b.pressed = false;
+            b.value = 0;
+            resolve();
+          });
+        }),
+      i,
+    );
+    await afterFrames(1);
   };
 
   const g0 = await snap();
@@ -267,13 +288,37 @@ async function bootGame(page, tap) {
   await press(9);
   if ((await until((s) => s.state === 'paused')).state !== 'paused')
     problems.push('[gamepad] Start did not pause');
-  // Menu navigation: D-pad down from Resume focuses "Photo mode", A opens it.
-  await press(13, 1);
-  const focused = await page.evaluate(() => document.activeElement?.textContent);
+  // Menu navigation: steer focus to "Photo mode" with the D-pad (direction
+  // chosen from the on-screen positions, because the pause menu becomes a
+  // two-column grid on short screens), then A opens it. Every press must
+  // move the focus.
+  const DPAD = { up: 12, down: 13, left: 14, right: 15 };
+  const focusedText = () => page.evaluate(() => document.activeElement?.textContent);
+  const directionTo = (label) =>
+    page.evaluate((text) => {
+      const target = [...document.querySelectorAll('button')].find(
+        (b) => b.textContent === text && b.offsetParent !== null,
+      );
+      const a = document.activeElement.getBoundingClientRect();
+      const t = target.getBoundingClientRect();
+      const dx = t.left + t.width / 2 - (a.left + a.width / 2);
+      const dy = t.top + t.height / 2 - (a.top + a.height / 2);
+      if (Math.abs(dy) > a.height / 2) return dy > 0 ? 'down' : 'up';
+      return dx > 0 ? 'right' : 'left';
+    }, label);
+  let focused = await focusedText();
+  const visited = [focused];
+  for (let i = 0; i < 6 && focused !== 'Photo mode'; i++) {
+    await tap(DPAD[await directionTo('Photo mode')]);
+    const next = await focusedText();
+    if (next === focused) break;
+    focused = next;
+    visited.push(focused);
+  }
   await press(0);
   const viaMenu = await until((s) => s.state === 'photo');
-  log(`gamepad: D-pad focused "${focused}", A → ${viaMenu.state}`);
-  if (focused !== 'Photo mode' || viaMenu.state !== 'photo')
+  log(`gamepad: D-pad visited ${visited.join(' → ')}, A → ${viaMenu.state}`);
+  if (focused !== 'Photo mode' || visited.length < 2 || viaMenu.state !== 'photo')
     problems.push(`[gamepad] menu navigation failed (focus "${focused}", state ${viaMenu.state})`);
   if (software) await page.evaluate(() => window.__ROBOPUP_TEST__.photoParam('dof', false));
 
